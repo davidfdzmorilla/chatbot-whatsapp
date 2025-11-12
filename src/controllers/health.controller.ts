@@ -3,6 +3,7 @@ import { logger } from '../utils/logger.js';
 import { env } from '../config/env.js';
 import { checkDatabaseHealth } from '../config/database.js';
 import { checkRedisHealth } from '../config/redis.js';
+import { checkAnthropicHealth } from '../config/anthropic.js';
 
 /**
  * Health check controller
@@ -24,6 +25,7 @@ export class HealthController {
         server: this.checkServer(),
         database: await checkDatabaseHealth(),
         redis: await checkRedisHealth(),
+        anthropic: await checkAnthropicHealth(),
         memory: this.checkMemory(),
       },
     };

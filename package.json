@@ -36,6 +36,7 @@
     "pnpm": ">=8.0.0"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
     "@prisma/client": "^6.19.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
