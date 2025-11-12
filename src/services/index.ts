@@ -23,6 +23,13 @@ export {
   type AIResponse,
 } from './ai.service.js';
 
+export {
+  twilioService,
+  TwilioService,
+  type SendMessageResult,
+  type MessageStatus,
+} from './twilio.service.js';
+
 // Re-export commonly used types
 export type { Message } from '@prisma/client';
 export { MessageRole } from '@prisma/client';
