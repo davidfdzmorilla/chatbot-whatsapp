@@ -1,0 +1,56 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy-railway:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Railway
+        uses: bervProject/railway-deploy@main
+        with:
+          railway_token: ${{ secrets.RAILWAY_TOKEN }}
+          service: chatbot-whatsapp
+
+      - name: Notify deployment success
+        if: success()
+        run: |
+          echo "✅ Deployment to Railway successful!"
+          echo "Timestamp: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+
+      - name: Notify deployment failure
+        if: failure()
+        run: |
+          echo "❌ Deployment to Railway failed!"
+          echo "Timestamp: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+
+  # Alternate deployment option for Render
+  # deploy-render:
+  #   name: Deploy to Render
+  #   runs-on: ubuntu-latest
+  #   if: github.ref == 'refs/heads/main'
+  #
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Deploy to Render
+  #       uses: johnbeynon/render-deploy-action@v0.0.8
+  #       with:
+  #         service-id: ${{ secrets.RENDER_SERVICE_ID }}
+  #         api-key: ${{ secrets.RENDER_API_KEY }}
+  #
+  #     - name: Notify deployment success
+  #       if: success()
+  #       run: |
+  #         echo "✅ Deployment to Render successful!"
+  #         echo "Timestamp: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
