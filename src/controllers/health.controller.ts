@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { logger } from '../utils/logger.js';
 import { env } from '../config/env.js';
+import { checkDatabaseHealth } from '../config/database.js';
+import { checkRedisHealth } from '../config/redis.js';
 
 /**
  * Health check controller
@@ -20,6 +22,8 @@ export class HealthController {
       version: '1.0.0',
       checks: {
         server: this.checkServer(),
+        database: await checkDatabaseHealth(),
+        redis: await checkRedisHealth(),
         memory: this.checkMemory(),
       },
     };

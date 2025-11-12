@@ -1,0 +1,116 @@
+// Prisma schema for WhatsApp AI Chatbot
+// Following Clean Code and DDD principles with optimized indexes
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// DOMAIN MODELS
+// ============================================
+
+/// User entity - Represents a WhatsApp user
+/// Aggregate root for user-related operations
+model User {
+  id            String         @id @default(uuid())
+  phoneNumber   String         @unique @db.VarChar(20)
+  name          String?        @db.VarChar(255)
+  language      String         @default("es") @db.VarChar(10)
+  createdAt     DateTime       @default(now()) @db.Timestamptz
+  updatedAt     DateTime       @updatedAt @db.Timestamptz
+
+  // Relations
+  conversations Conversation[]
+
+  @@map("users")
+  @@index([phoneNumber])
+}
+
+/// Conversation entity - Represents a conversation between user and chatbot
+/// Aggregate root for conversation context
+model Conversation {
+  id              String    @id @default(uuid())
+  userId          String
+  status          ConversationStatus @default(ACTIVE)
+  contextSummary  String?   @db.Text
+  lastMessageAt   DateTime  @default(now()) @db.Timestamptz
+  createdAt       DateTime  @default(now()) @db.Timestamptz
+  updatedAt       DateTime  @updatedAt @db.Timestamptz
+
+  // Relations
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages        Message[]
+
+  @@map("conversations")
+  @@index([userId])
+  @@index([lastMessageAt])
+  @@index([status, userId])
+  @@index([createdAt])
+}
+
+/// Message entity - Represents a single message in a conversation
+/// Value object within Conversation aggregate
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  role           MessageRole
+  content        String       @db.Text
+  twilioSid      String?      @unique @db.VarChar(34)
+  metadata       Json?        @db.JsonB
+  tokensUsed     Int?
+  latencyMs      Int?
+  createdAt      DateTime     @default(now()) @db.Timestamptz
+
+  // Relations
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+  @@index([conversationId])
+  @@index([createdAt])
+  @@index([role, conversationId])
+}
+
+/// Analytics entity - Daily aggregated metrics for monitoring
+/// Read model for analytics and reporting
+model Analytics {
+  id                   String   @id @default(uuid())
+  date                 DateTime @unique @db.Date
+  totalMessages        Int      @default(0)
+  totalConversations   Int      @default(0)
+  totalUsers           Int      @default(0)
+  totalTokens          Int      @default(0)
+  avgLatencyMs         Int?
+  createdAt            DateTime @default(now()) @db.Timestamptz
+  updatedAt            DateTime @updatedAt @db.Timestamptz
+
+  @@map("analytics")
+  @@index([date])
+  @@index([createdAt])
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+/// Message role following Claude API format
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+
+  @@map("message_role")
+}
+
+/// Conversation status for lifecycle management
+enum ConversationStatus {
+  ACTIVE
+  CLOSED
+  ARCHIVED
+
+  @@map("conversation_status")
+}
