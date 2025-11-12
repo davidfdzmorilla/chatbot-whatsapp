@@ -1,11 +1,41 @@
-import { Request, Response, NextFunction } from 'express';
-import { AppError, isOperationalError } from '../utils/errors.js';
+import type { Request, Response, NextFunction } from 'express';
+import MessagingResponse from 'twilio/lib/twiml/MessagingResponse';
 import { logger } from '../utils/logger.js';
 import { env } from '../config/env.js';
 
 /**
- * Global error handling middleware
- * Catches all errors and returns appropriate responses
+ * Error object structure for consistent error handling
+ */
+interface ErrorResponse {
+  status: 'error';
+  message: string;
+  statusCode: number;
+  stack?: string;
+  timestamp: string;
+  path?: string;
+}
+
+/**
+ * Error Middleware
+ * Global error handler for Express application
+ *
+ * Features:
+ * - Catches all unhandled errors in the request pipeline
+ * - Logs errors with full context using Winston
+ * - Returns appropriate responses based on NODE_ENV:
+ *   - Development: Includes stack trace and detailed error info
+ *   - Production: Returns generic message without internal details
+ * - Attempts to respond with TwiML for webhook requests
+ * - Provides consistent error response format
+ *
+ * Usage:
+ * This middleware should be registered LAST in the Express middleware chain,
+ * after all routes and other middleware.
+ *
+ * @example
+ * app.use('/webhook', webhookRoutes);
+ * app.use('/health', healthRoutes);
+ * app.use(errorMiddleware); // Register last
  */
 export function errorMiddleware(
   error: Error,
@@ -14,64 +44,148 @@ export function errorMiddleware(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _next: NextFunction
 ): void {
-  // Log the error
-  logger.error('Error occurred', {
-    error: error.message,
-    stack: error.stack,
+  // Extract error details
+  const statusCode = (error as any).statusCode || 500;
+  const message = error.message || 'Internal server error';
+  const stack = error.stack;
+
+  // Log error with full context
+  logger.error('❌ Unhandled error in request', {
+    error: message,
+    statusCode,
+    stack,
     path: req.path,
     method: req.method,
+    body: req.body,
+    query: req.query,
+    params: req.params,
     ip: req.ip,
+    userAgent: req.get('user-agent'),
   });
 
-  // Handle operational errors (expected errors)
-  if (error instanceof AppError) {
-    res.status(error.statusCode).json({
-      error: error.message,
-      code: error.code,
-      ...(env.NODE_ENV === 'development' && { stack: error.stack }),
-    });
-    return;
-  }
+  // Determine if this is a webhook request (should respond with TwiML)
+  const isWebhookRequest = req.path.includes('/webhook');
 
-  // Handle programming errors (unexpected errors)
-  // Don't expose internal errors in production
-  const statusCode = 500;
-  const message =
-    env.NODE_ENV === 'production' ? 'Internal server error' : error.message || 'Unknown error';
-
-  res.status(statusCode).json({
-    error: message,
-    code: 'INTERNAL_ERROR',
-    ...(env.NODE_ENV === 'development' && { stack: error.stack }),
-  });
-
-  // Exit process for non-operational errors in production
-  if (!isOperationalError(error) && env.NODE_ENV === 'production') {
-    logger.error('Non-operational error occurred. Shutting down gracefully...', {
-      error: error.message,
-      stack: error.stack,
-    });
-
-    // Give time for response to be sent
-    setTimeout(() => {
-      process.exit(1);
-    }, 1000);
+  if (isWebhookRequest) {
+    // Respond with TwiML error message
+    respondWithTwiMLError(res, statusCode);
+  } else {
+    // Respond with JSON error
+    respondWithJSONError(res, error, statusCode, req.path);
   }
 }
 
 /**
- * Handle 404 errors (route not found)
+ * Respond with TwiML error message
+ * Used for webhook endpoints to ensure Twilio receives valid TwiML
  */
-export function notFoundMiddleware(req: Request, res: Response): void {
-  logger.warn('Route not found', {
-    path: req.path,
+function respondWithTwiMLError(res: Response, statusCode: number): void {
+  const twiml = new MessagingResponse();
+
+  // User-friendly error message (in Spanish for WhatsApp users)
+  twiml.message(
+    'Lo siento, ha ocurrido un error al procesar tu mensaje. Por favor intenta de nuevo en unos momentos. 🔧'
+  );
+
+  res.status(statusCode);
+  res.type('text/xml');
+  res.send(twiml.toString());
+
+  logger.debug('📤 TwiML error response sent', { statusCode });
+}
+
+/**
+ * Respond with JSON error
+ * Used for non-webhook endpoints (e.g., health check, admin endpoints)
+ */
+function respondWithJSONError(
+  res: Response,
+  error: Error,
+  statusCode: number,
+  path: string
+): void {
+  const isDevelopment = env.NODE_ENV === 'development';
+
+  // Build error response
+  const errorResponse: ErrorResponse = {
+    status: 'error',
+    message: isDevelopment ? error.message : 'Internal server error',
+    statusCode,
+    timestamp: new Date().toISOString(),
+    path,
+  };
+
+  // Include stack trace only in development
+  if (isDevelopment && error.stack) {
+    errorResponse.stack = error.stack;
+  }
+
+  res.status(statusCode).json(errorResponse);
+
+  logger.debug('📤 JSON error response sent', { statusCode, path });
+}
+
+/**
+ * Custom Application Error
+ * Extends Error to include HTTP status code
+ *
+ * Usage:
+ * throw new AppError('User not found', 404);
+ */
+export class AppError extends Error {
+  public readonly statusCode: number;
+  public readonly isOperational: boolean;
+
+  constructor(message: string, statusCode: number = 500, isOperational = true) {
+    super(message);
+    this.statusCode = statusCode;
+    this.isOperational = isOperational;
+
+    // Maintains proper stack trace for where error was thrown
+    Error.captureStackTrace(this, this.constructor);
+
+    // Set the prototype explicitly (TypeScript requirement)
+    Object.setPrototypeOf(this, AppError.prototype);
+  }
+}
+
+/**
+ * Not Found Error Handler
+ * Handles 404 errors for undefined routes
+ *
+ * Usage:
+ * app.use(notFoundHandler); // Before error middleware
+ */
+export function notFoundHandler(
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): void {
+  const error = new AppError(`Route not found: ${req.method} ${req.path}`, 404);
+
+  logger.warn('⚠️  Route not found', {
     method: req.method,
+    path: req.path,
     ip: req.ip,
   });
 
-  res.status(404).json({
-    error: 'Route not found',
-    code: 'NOT_FOUND',
-    path: req.path,
-  });
+  next(error);
+}
+
+/**
+ * Async Handler Wrapper
+ * Wraps async route handlers to catch promise rejections
+ *
+ * Usage:
+ * router.post('/webhook', asyncHandler(async (req, res) => {
+ *   await someAsyncOperation();
+ *   res.send('OK');
+ * }));
+ */
+export function asyncHandler(
+  fn: (req: Request, res: Response, next: NextFunction) => Promise<void>
+) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
 }

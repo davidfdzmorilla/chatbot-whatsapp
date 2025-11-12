@@ -4,7 +4,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import { env } from './config/env.js';
 import { logger, logStream } from './utils/logger.js';
-import { errorMiddleware, notFoundMiddleware } from './middleware/error.middleware.js';
+import { errorMiddleware, notFoundHandler } from './middleware/error.middleware.js';
 import router from './routes/index.js';
 
 /**
@@ -58,7 +58,7 @@ export function createApp(): Application {
   app.use('/', router);
 
   // 404 handler (must be after all routes)
-  app.use(notFoundMiddleware);
+  app.use(notFoundHandler);
 
   // Global error handler (must be last)
   app.use(errorMiddleware);

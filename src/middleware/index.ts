@@ -13,3 +13,19 @@ export {
   getRateLimitStatus,
   resetRateLimit,
 } from './rateLimit.middleware.js';
+
+// Export error handling middleware
+export {
+  errorMiddleware,
+  notFoundHandler,
+  asyncHandler,
+  AppError,
+} from './error.middleware.js';
+
+// Export validation middleware
+export {
+  validationMiddleware,
+  validateMessageLength,
+  validateMedia,
+  type TwilioWebhookPayload,
+} from './validation.middleware.js';
