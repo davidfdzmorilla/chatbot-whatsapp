@@ -1,69 +1,182 @@
 import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { logger } from './utils/logger.js';
+import { prisma } from './config/database.js';
+import { redis } from './config/redis.js';
 
 /**
  * Server entry point
  * Initializes and starts the Express server
+ *
+ * Startup sequence:
+ * 1. Verify database connection
+ * 2. Verify Redis connection
+ * 3. Start Express server
+ * 4. Register graceful shutdown handlers
  */
 
 const PORT = parseInt(env.PORT, 10);
-const app = createApp();
 
 /**
- * Start server
+ * Verify Database Connection
+ * Attempts to ping PostgreSQL database via Prisma
  */
-const server = app.listen(PORT, () => {
-  logger.info('🚀 Server started successfully', {
-    port: PORT,
-    environment: env.NODE_ENV,
-    nodeVersion: process.version,
-  });
+async function verifyDatabaseConnection(): Promise<void> {
+  try {
+    logger.info('Verifying database connection...');
 
-  logger.info('📋 Available endpoints:', {
-    health: `http://localhost:${PORT}/health`,
-  });
-});
+    // Ping database with a simple query
+    await prisma.$queryRaw`SELECT 1`;
 
-/**
- * Graceful shutdown handler
- */
-function gracefulShutdown(signal: string): void {
-  logger.info(`${signal} received. Starting graceful shutdown...`);
+    logger.info('✅ Database connection verified', {
+      database: 'PostgreSQL',
+      host: env.DATABASE_URL.split('@')[1]?.split('/')[0] || 'unknown',
+    });
+  } catch (error) {
+    logger.error('❌ Database connection failed', {
+      error: error instanceof Error ? error.message : error,
+      database: 'PostgreSQL',
+    });
 
-  server.close(() => {
-    logger.info('Server closed. Exiting process.');
-    process.exit(0);
-  });
-
-  // Force shutdown after 10 seconds
-  setTimeout(() => {
-    logger.error('Forced shutdown after timeout');
-    process.exit(1);
-  }, 10000);
+    throw new Error('Failed to connect to database');
+  }
 }
 
-// Handle shutdown signals
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+/**
+ * Verify Redis Connection
+ * Attempts to ping Redis server
+ */
+async function verifyRedisConnection(): Promise<void> {
+  try {
+    logger.info('Verifying Redis connection...');
 
-// Handle uncaught exceptions
-process.on('uncaughtException', (error: Error) => {
-  logger.error('Uncaught exception', {
-    error: error.message,
-    stack: error.stack,
+    // Ping Redis
+    await redis.ping();
+
+    logger.info('✅ Redis connection verified', {
+      host: env.REDIS_URL.split('@')[1]?.split(':')[0] || 'unknown',
+    });
+  } catch (error) {
+    logger.error('❌ Redis connection failed', {
+      error: error instanceof Error ? error.message : error,
+    });
+
+    throw new Error('Failed to connect to Redis');
+  }
+}
+
+/**
+ * Initialize Server
+ * Verifies connections and starts the Express server
+ */
+async function initializeServer(): Promise<void> {
+  try {
+    logger.info('Starting server initialization...', {
+      environment: env.NODE_ENV,
+      nodeVersion: process.version,
+      port: PORT,
+    });
+
+    // Verify all connections before starting server
+    await verifyDatabaseConnection();
+    await verifyRedisConnection();
+
+    // Create Express app
+    const app = createApp();
+
+    // Start server
+    const server = app.listen(PORT, () => {
+      logger.info('🚀 Server started successfully', {
+        port: PORT,
+        environment: env.NODE_ENV,
+        nodeVersion: process.version,
+      });
+
+      logger.info('📋 Available endpoints:', {
+        health: `http://localhost:${PORT}/health`,
+        webhook: `http://localhost:${PORT}/webhook/whatsapp`,
+      });
+
+      logger.info('✨ Server ready to accept requests');
+    });
+
+    // Register graceful shutdown handlers
+    setupGracefulShutdown(server);
+  } catch (error) {
+    logger.error('❌ Server initialization failed', {
+      error: error instanceof Error ? error.message : error,
+    });
+
+    // Exit process with error code
+    process.exit(1);
+  }
+}
+
+/**
+ * Setup Graceful Shutdown Handlers
+ * Registers handlers for shutdown signals and uncaught errors
+ */
+function setupGracefulShutdown(server: any): void {
+  /**
+   * Graceful shutdown handler
+   */
+  function gracefulShutdown(signal: string): void {
+    logger.info(`${signal} received. Starting graceful shutdown...`);
+
+    // Close HTTP server (stop accepting new connections)
+    server.close(async () => {
+      logger.info('HTTP server closed');
+
+      try {
+        // Close database connection
+        await prisma.$disconnect();
+        logger.info('Database connection closed');
+
+        // Close Redis connection
+        await redis.quit();
+        logger.info('Redis connection closed');
+
+        logger.info('✅ Graceful shutdown completed');
+        process.exit(0);
+      } catch (error) {
+        logger.error('Error during graceful shutdown', {
+          error: error instanceof Error ? error.message : error,
+        });
+        process.exit(1);
+      }
+    });
+
+    // Force shutdown after 10 seconds if graceful shutdown hangs
+    setTimeout(() => {
+      logger.error('⚠️  Forced shutdown after timeout');
+      process.exit(1);
+    }, 10000);
+  }
+
+  // Handle shutdown signals
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+  // Handle uncaught exceptions
+  process.on('uncaughtException', (error: Error) => {
+    logger.error('❌ Uncaught exception', {
+      error: error.message,
+      stack: error.stack,
+    });
+
+    process.exit(1);
   });
 
-  process.exit(1);
-});
+  // Handle unhandled promise rejections
+  process.on('unhandledRejection', (reason: unknown) => {
+    logger.error('❌ Unhandled promise rejection', {
+      reason: reason instanceof Error ? reason.message : reason,
+      stack: reason instanceof Error ? reason.stack : undefined,
+    });
 
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason: unknown) => {
-  logger.error('Unhandled promise rejection', {
-    reason,
+    process.exit(1);
   });
+}
 
-  process.exit(1);
-});
-
-export default server;
+// Start the server
+initializeServer();
