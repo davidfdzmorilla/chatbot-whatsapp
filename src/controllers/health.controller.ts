@@ -4,6 +4,7 @@ import { env } from '../config/env.js';
 import { checkDatabaseHealth } from '../config/database.js';
 import { checkRedisHealth } from '../config/redis.js';
 import { checkAnthropicHealth } from '../config/anthropic.js';
+import { checkTwilioHealth } from '../config/twilio.js';
 
 /**
  * Health check controller
@@ -26,6 +27,7 @@ export class HealthController {
         database: await checkDatabaseHealth(),
         redis: await checkRedisHealth(),
         anthropic: await checkAnthropicHealth(),
+        twilio: await checkTwilioHealth(),
         memory: this.checkMemory(),
       },
     };
