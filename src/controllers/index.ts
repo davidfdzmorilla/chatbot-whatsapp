@@ -12,3 +12,8 @@ export {
   webhookController,
   WebhookController,
 } from './webhook.controller.js';
+
+export {
+  healthController,
+  HealthController,
+} from './health.controller.js';
