@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { healthController } from '../controllers/health.controller.js';
 import { webhookController } from '../controllers/webhook.controller.js';
 import {
+  twilioSignatureMiddleware,
   rateLimitMiddleware,
   validationMiddleware,
 } from '../middleware/index.js';
@@ -33,9 +34,10 @@ router.get('/health', (req, res) => healthController.check(req, res));
  * Receives incoming messages from Twilio WhatsApp API
  *
  * Middleware Pipeline:
- * 1. rateLimitMiddleware - Limits requests to 10/min per phone number
- * 2. validationMiddleware - Validates Twilio webhook payload with Zod
- * 3. webhookController.handleIncoming - Processes message and responds with TwiML
+ * 1. twilioSignatureMiddleware - Validates Twilio webhook signature (security)
+ * 2. rateLimitMiddleware - Limits requests to 10/min per phone number
+ * 3. validationMiddleware - Validates Twilio webhook payload with Zod
+ * 4. webhookController.handleIncoming - Processes message and responds with TwiML
  *
  * Request Body (from Twilio):
  * - From: Phone number with "whatsapp:" prefix
@@ -45,9 +47,12 @@ router.get('/health', (req, res) => healthController.check(req, res));
  * - NumMedia: (optional) Number of media attachments
  *
  * Response: TwiML XML with assistant's response
+ *
+ * Security: Twilio signature validation prevents webhook spoofing attacks
  */
 router.post(
   '/webhook/whatsapp',
+  twilioSignatureMiddleware,  // FIRST: Validate signature
   rateLimitMiddleware,
   validationMiddleware,
   (req, res) => webhookController.handleIncoming(req, res)

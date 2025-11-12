@@ -29,3 +29,9 @@ export {
   validateMedia,
   type TwilioWebhookPayload,
 } from './validation.middleware.js';
+
+// Export Twilio signature validation middleware
+export {
+  twilioSignatureMiddleware,
+  optionalTwilioSignatureMiddleware,
+} from './twilioSignature.middleware.js';
