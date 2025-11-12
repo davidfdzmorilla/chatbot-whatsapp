@@ -143,9 +143,10 @@ export function optionalTwilioSignatureMiddleware(
   res: Response,
   next: NextFunction
 ): void {
-  if (env.NODE_ENV === 'development') {
-    logger.warn('Skipping Twilio signature validation (development mode)', {
+  if (env.NODE_ENV === 'development' || env.NODE_ENV === 'test') {
+    logger.warn('Skipping Twilio signature validation (development/test mode)', {
       path: req.path,
+      environment: env.NODE_ENV,
     });
     return next();
   }

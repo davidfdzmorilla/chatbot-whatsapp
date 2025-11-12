@@ -129,6 +129,11 @@ export class TwilioService {
         error: error instanceof Error ? error.message : error,
       });
 
+      // Convert error to user-friendly message before throwing
+      if (this.isTwilioError(error)) {
+        throw this.handleTwilioError(error);
+      }
+
       throw error;
     }
   }
@@ -212,12 +217,9 @@ export class TwilioService {
         latencyMs,
       });
 
-      // Handle specific Twilio API errors
-      if (this.isTwilioError(error)) {
-        throw this.handleTwilioError(error);
-      }
-
-      throw new Error('Failed to send WhatsApp message');
+      // Re-throw original error to preserve retry information
+      // handleTwilioError is called at a higher level for user-friendly messages
+      throw error;
     }
   }
 
