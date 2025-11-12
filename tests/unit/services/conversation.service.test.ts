@@ -412,25 +412,27 @@ describe('ConversationService', () => {
   describe('updateContextSummary', () => {
     it('should update context summary and invalidate cache', async () => {
       const conversationId = 'conv-123';
+      const userId = 'user-123';
       const summary = 'User is asking about product pricing';
 
       mockUpdateContextSummary.mockResolvedValue(undefined);
       mockRedisDel.mockResolvedValue(1);
 
-      await conversationService.updateContextSummary(conversationId, summary);
+      await conversationService.updateContextSummary(conversationId, summary, userId);
 
-      expect(mockUpdateContextSummary).toHaveBeenCalledWith(conversationId, summary);
+      expect(mockUpdateContextSummary).toHaveBeenCalledWith(conversationId, summary, userId);
       expect(mockRedisDel).toHaveBeenCalledWith(`conversation:${conversationId}:context`);
     });
 
     it('should handle repository errors', async () => {
       const conversationId = 'conv-123';
+      const userId = 'user-123';
       const summary = 'Test summary';
 
       mockUpdateContextSummary.mockRejectedValue(new Error('Update failed'));
 
       await expect(
-        conversationService.updateContextSummary(conversationId, summary)
+        conversationService.updateContextSummary(conversationId, summary, userId)
       ).rejects.toThrow('Update failed');
     });
   });

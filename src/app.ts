@@ -52,44 +52,106 @@ export function createApp(): Application {
     })
   );
 
-  // CORS configuration with whitelist
+  // CORS configuration with environment-aware origin validation
   // Twilio webhooks are server-to-server and don't need CORS
-  const ALLOWED_ORIGINS = env.NODE_ENV === 'production'
-    ? [] // Production: No browser origins allowed (webhooks only)
-    : ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3001'];
-
+  // In production, uses ALLOWED_ORIGINS env var for configurable whitelist
   const corsOptions: cors.CorsOptions = {
     origin: (origin, callback) => {
       // Allow requests with no origin (server-to-server, mobile apps, Postman, curl)
+      // Twilio webhooks don't send Origin header
       if (!origin) {
         return callback(null, true);
       }
 
-      // In production, reject all browser requests (webhooks don't have origin)
-      if (env.NODE_ENV === 'production') {
-        logger.warn('CORS: Rejecting request with origin in production', { origin });
-        return callback(new Error('Not allowed by CORS'));
+      // Get allowed origins from environment or use defaults
+      const allowedOrigins = env.ALLOWED_ORIGINS
+        ? env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+        : [];
+
+      // Development: allow localhost patterns if no origins configured
+      if (env.NODE_ENV === 'development') {
+        const localhostPattern = /^https?:\/\/localhost(:\d+)?$/;
+        if (localhostPattern.test(origin)) {
+          return callback(null, true);
+        }
       }
 
-      // In development, allow whitelisted origins
-      if (ALLOWED_ORIGINS.includes(origin)) {
+      // If no origins configured in development, allow all
+      if (allowedOrigins.length === 0 && env.NODE_ENV === 'development') {
         return callback(null, true);
       }
 
-      logger.warn('CORS: Origin not in whitelist', { origin });
-      callback(new Error('Not allowed by CORS'));
+      // Check if origin is in whitelist
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        logger.warn('🚫 CORS request blocked', {
+          origin,
+          allowedOrigins: env.NODE_ENV === 'development' ? allowedOrigins : '[REDACTED]',
+        });
+        callback(new Error('Not allowed by CORS'));
+      }
     },
     credentials: true,
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type', 'X-Twilio-Signature'],
+    maxAge: 86400, // 24 hours
     optionsSuccessStatus: 200,
   };
 
   app.use(cors(corsOptions));
 
-  // Body parsing middleware
-  // WhatsApp webhook payloads are typically < 10KB
-  // Reduced limit protects against DoS attacks
-  app.use(express.json({ limit: '100kb' }));
-  app.use(express.urlencoded({ extended: true, limit: '100kb' }));
+  logger.info('✅ CORS configured', {
+    mode: env.ALLOWED_ORIGINS ? 'whitelist' : 'default',
+    development: env.NODE_ENV === 'development',
+  });
+
+  // Body parsing middleware with strict size limits
+  // WhatsApp webhook payloads are typically < 5KB
+  // 10KB limit protects against DoS attacks while allowing legitimate requests
+  const BODY_SIZE_LIMIT = '10kb';
+  const BODY_SIZE_LIMIT_BYTES = 10240; // 10KB in bytes
+
+  app.use(express.json({
+    limit: BODY_SIZE_LIMIT,
+    strict: true, // Only accept arrays and objects
+  }));
+
+  app.use(express.urlencoded({
+    extended: true,
+    limit: BODY_SIZE_LIMIT,
+  }));
+
+  // Additional body size validation middleware
+  // Rejects requests exceeding limit before parsing
+  app.use((req, res, next): void => {
+    const contentLength = parseInt(req.headers['content-length'] || '0', 10);
+
+    if (contentLength > BODY_SIZE_LIMIT_BYTES) {
+      logger.warn('⚠️  Request body exceeds size limit', {
+        size: contentLength,
+        sizeKB: (contentLength / 1024).toFixed(2),
+        limit: BODY_SIZE_LIMIT,
+        path: req.path,
+        method: req.method,
+        ip: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+
+      res.status(413).json({
+        error: 'Payload Too Large',
+        message: `Request body exceeds ${BODY_SIZE_LIMIT} limit`,
+      });
+      return;
+    }
+
+    next();
+  });
+
+  logger.info('✅ Body size limits configured', {
+    limit: BODY_SIZE_LIMIT,
+    limitBytes: BODY_SIZE_LIMIT_BYTES,
+  });
 
   // HTTP request logging
   const morganFormat = env.NODE_ENV === 'development' ? 'dev' : 'combined';
@@ -98,37 +160,34 @@ export function createApp(): Application {
   // Disable x-powered-by header
   app.disable('x-powered-by');
 
-  // VULN-010 FIX: Trust proxy with validation
-  // Configure trust proxy for production deployment behind reverse proxies
+  // Trust proxy configuration for accurate IP detection
+  // Required when behind reverse proxies (Railway, Render, Fly.io) or ngrok
+  // Prevents IP spoofing via X-Forwarded-For header manipulation
   if (env.NODE_ENV === 'production') {
-    // Trust first proxy only (common for Railway, Render, Fly.io)
-    // This prevents IP spoofing via X-Forwarded-For header manipulation
-    // Only the first proxy in the chain is trusted
+    // Production: Trust first proxy only
+    // Common for cloud providers (Railway, Render, Fly.io)
     app.set('trust proxy', 1);
 
-    // Alternative: Trust specific IP ranges (uncomment if needed)
-    // For Railway: trust loopback + private networks
-    // app.set('trust proxy', 'loopback, linklocal, uniquelocal');
-
-    // Alternative: Trust proxy by hop count function (most secure)
-    // app.set('trust proxy', (ip: string) => {
-    //   // List of known trusted proxy IPs (from your cloud provider)
-    //   const trustedProxies = [
-    //     '10.0.0.0/8',      // Private network
-    //     '172.16.0.0/12',   // Private network
-    //     '192.168.0.0/16',  // Private network
-    //   ];
-    //   return trustedProxies.some(range => ipInRange(ip, range));
-    // });
-
-    logger.info('Trust proxy enabled for production', {
+    logger.info('✅ Trust proxy enabled for production', {
       trustProxy: 1,
       note: 'Only first proxy in chain is trusted',
     });
+  } else if (env.NODE_ENV === 'development' && env.TRUST_PROXY === 'true') {
+    // Development: Enable when using ngrok or local reverse proxy
+    app.set('trust proxy', 1);
+
+    logger.info('✅ Trust proxy enabled for development', {
+      trustProxy: 1,
+      note: 'Enabled for ngrok or local reverse proxy',
+    });
   } else {
-    // Development: do not trust any proxies
+    // Development: Do not trust any proxies by default
     app.set('trust proxy', false);
-    logger.info('Trust proxy disabled for development');
+
+    logger.info('ℹ️  Trust proxy disabled', {
+      environment: env.NODE_ENV,
+      note: 'Set TRUST_PROXY=true if using ngrok',
+    });
   }
 
   // Routes

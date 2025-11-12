@@ -22,7 +22,7 @@ export class UserRepository {
       });
 
       if (user) {
-        logger.debug('User found', { userId: user.id, phoneNumber });
+        logger.debug('User found', { userId: user.id, phoneNumberHash: hashPhoneNumber(phoneNumber) });
       } else {
         logger.debug('User not found', {
           phoneNumberHash: hashPhoneNumber(phoneNumber)

@@ -63,8 +63,8 @@ export class WebhookController {
       const phoneNumber = From.replace(/^whatsapp:/i, '');
 
       logger.debug('📞 Extracted phone number', {
-        original: From,
-        cleaned: phoneNumber,
+        originalHash: hashPhoneNumber(From),
+        cleanedHash: hashPhoneNumber(phoneNumber),
       });
 
       // Step 4: Get or create conversation for this user

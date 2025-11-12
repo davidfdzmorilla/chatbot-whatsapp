@@ -237,11 +237,11 @@ export async function resetRateLimit(phoneNumber: string): Promise<void> {
 
   try {
     await redis.del(redisKey);
-    logger.info('Rate limit reset', { phoneNumber });
+    logger.info('Rate limit reset', { phoneNumberHash: hashPhoneNumber(phoneNumber) });
   } catch (error) {
     logger.error('Error resetting rate limit', {
       error: error instanceof Error ? error.message : error,
-      phoneNumber,
+      phoneNumberHash: hashPhoneNumber(phoneNumber),
     });
     throw error;
   }

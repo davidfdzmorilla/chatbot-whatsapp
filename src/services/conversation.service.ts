@@ -44,7 +44,7 @@ export class ConversationService {
 
       logger.debug('User retrieved/created', {
         userId: user.id,
-        phoneNumber,
+        phoneNumberHash: hashPhoneNumber(phoneNumber),
       });
 
       // 2. Look for active conversation
@@ -278,14 +278,15 @@ export class ConversationService {
    * Update conversation context summary
    * Used for long conversations to maintain context
    */
-  async updateContextSummary(conversationId: string, summary: string): Promise<void> {
+  async updateContextSummary(conversationId: string, summary: string, userId: string): Promise<void> {
     try {
       logger.info('Updating conversation context summary', {
         conversationId,
         summaryLength: summary.length,
+        userId,
       });
 
-      await conversationRepository.updateContextSummary(conversationId, summary);
+      await conversationRepository.updateContextSummary(conversationId, summary, userId);
 
       // Invalidate cache to force refresh
       const cacheKey = CacheKeys.conversationContext(conversationId);

@@ -256,23 +256,53 @@ describe('ConversationRepository', () => {
   });
 
   describe('updateContextSummary', () => {
-    it('should update context summary', async () => {
+    it('should update context summary with ownership validation', async () => {
       const convId = 'conv-123';
+      const userId = 'user-owner';
       const summary = 'User is asking about product pricing';
       const updatedConv = createMockConversation({
         id: convId,
         contextSummary: summary,
       });
 
+      // Mock ownership check
+      mockFindUnique.mockResolvedValueOnce({ userId });
+
+      // Mock update
       mockUpdate.mockResolvedValue(updatedConv);
 
-      const result = await conversationRepository.updateContextSummary(convId, summary);
+      const result = await conversationRepository.updateContextSummary(convId, summary, userId);
 
       expect(result.contextSummary).toBe(summary);
       expect(mockUpdate).toHaveBeenCalledWith({
         where: { id: convId },
         data: { contextSummary: summary },
       });
+    });
+
+    it('should throw error if conversation not found', async () => {
+      const convId = 'nonexistent';
+      const userId = 'user-123';
+      const summary = 'Summary';
+
+      mockFindUnique.mockResolvedValueOnce(null);
+
+      await expect(
+        conversationRepository.updateContextSummary(convId, summary, userId)
+      ).rejects.toThrow('Conversation not found');
+    });
+
+    it('should throw error if user does not own conversation', async () => {
+      const convId = 'conv-123';
+      const userId = 'user-123';
+      const summary = 'Summary';
+
+      // Mock ownership check - different user
+      mockFindUnique.mockResolvedValueOnce({ userId: 'different-user' });
+
+      await expect(
+        conversationRepository.updateContextSummary(convId, summary, userId)
+      ).rejects.toThrow('Access denied');
     });
   });
 

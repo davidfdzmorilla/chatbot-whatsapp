@@ -183,13 +183,40 @@ export class ConversationRepository {
 
   /**
    * Update conversation context summary
+   * Validates user ownership for access control
    */
-  async updateContextSummary(id: string, summary: string): Promise<Conversation> {
+  async updateContextSummary(id: string, summary: string, userId: string): Promise<Conversation> {
     try {
       logger.debug('Updating conversation context summary', {
         conversationId: id,
         summaryLength: summary.length,
+        userId,
       });
+
+      // Access control: Verify conversation belongs to user
+      const existing = await prisma.conversation.findUnique({
+        where: { id },
+        select: { userId: true },
+      });
+
+      if (!existing) {
+        const error = new Error(`Conversation not found: ${id}`);
+        logger.error('Cannot update summary of non-existent conversation', {
+          conversationId: id,
+          userId,
+        });
+        throw error;
+      }
+
+      if (existing.userId !== userId) {
+        const error = new Error('Access denied: User does not own conversation');
+        logger.warn('Access denied: Attempted to update summary of conversation owned by another user', {
+          conversationId: id,
+          requestedByUserId: userId,
+          conversationUserId: existing.userId,
+        });
+        throw error;
+      }
 
       const conversation = await prisma.conversation.update({
         where: { id },

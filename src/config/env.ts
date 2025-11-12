@@ -43,6 +43,17 @@ const envSchema = z.object({
     .string()
     .min(32, 'PRIVACY_HASH_SALT must be at least 32 characters')
     .default('default-salt-CHANGE-IN-PRODUCTION'),
+
+  // CORS Configuration
+  // Comma-separated list of allowed origins for browser requests
+  // Example: "https://yourdomain.com,https://admin.yourdomain.com"
+  // Leave empty in development to allow all localhost
+  ALLOWED_ORIGINS: z.string().optional().default(''),
+
+  // Trust Proxy Configuration
+  // Set to 'true' when using ngrok or reverse proxy in development
+  // Automatically enabled in production
+  TRUST_PROXY: z.string().optional().default('false'),
 });
 
 /**
