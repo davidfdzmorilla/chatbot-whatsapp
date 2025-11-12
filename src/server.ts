@@ -30,7 +30,6 @@ async function verifyDatabaseConnection(): Promise<void> {
 
     logger.info('✅ Database connection verified', {
       database: 'PostgreSQL',
-      host: env.DATABASE_URL.split('@')[1]?.split('/')[0] || 'unknown',
     });
   } catch (error) {
     logger.error('❌ Database connection failed', {
@@ -53,9 +52,7 @@ async function verifyRedisConnection(): Promise<void> {
     // Ping Redis
     await redis.ping();
 
-    logger.info('✅ Redis connection verified', {
-      host: env.REDIS_URL.split('@')[1]?.split(':')[0] || 'unknown',
-    });
+    logger.info('✅ Redis connection verified');
   } catch (error) {
     logger.error('❌ Redis connection failed', {
       error: error instanceof Error ? error.message : error,
@@ -98,6 +95,35 @@ async function initializeServer(): Promise<void> {
       });
 
       logger.info('✨ Server ready to accept requests');
+    });
+
+    // VULN-011 FIX: Configure HTTP timeouts to prevent slowloris and hung connections
+    // These timeouts protect against:
+    // - Slowloris attacks (slow request/response)
+    // - Connection exhaustion
+    // - Resource leaks from hung connections
+
+    // Timeout for receiving the entire request (headers + body)
+    // Twilio webhooks should complete quickly (< 5 seconds)
+    server.requestTimeout = 10000; // 10 seconds
+
+    // Timeout for inactivity on the socket
+    // Close connections that have no activity
+    server.timeout = 30000; // 30 seconds
+
+    // Timeout for HTTP headers to be received
+    // Protects against slow header attacks
+    server.headersTimeout = 10000; // 10 seconds (must be > requestTimeout)
+
+    // Keep-Alive timeout (time to keep idle connections open)
+    // Shorter timeout reduces resource usage
+    server.keepAliveTimeout = 5000; // 5 seconds
+
+    logger.info('HTTP timeouts configured', {
+      requestTimeout: '10s',
+      socketTimeout: '30s',
+      headersTimeout: '10s',
+      keepAliveTimeout: '5s',
     });
 
     // Register graceful shutdown handlers

@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import MessagingResponse from 'twilio/lib/twiml/MessagingResponse';
 import { logger } from '../utils/logger.js';
 import { env } from '../config/env.js';
+import { sanitizeForLogging } from '../utils/privacy.js';
 
 /**
  * Error object structure for consistent error handling
@@ -49,18 +50,19 @@ export function errorMiddleware(
   const message = error.message || 'Internal server error';
   const stack = error.stack;
 
-  // Log error with full context
+  // Log error with full context (sanitized and environment-aware)
   logger.error('❌ Unhandled error in request', {
     error: message,
     statusCode,
-    stack,
+    stack: env.NODE_ENV === 'development' ? stack : undefined,  // Only in development
     path: req.path,
     method: req.method,
-    body: req.body,
-    query: req.query,
-    params: req.params,
+    body: env.NODE_ENV === 'development' ? sanitizeForLogging(req.body) : undefined,  // Sanitized and only in development
+    query: env.NODE_ENV === 'development' ? sanitizeForLogging(req.query) : undefined,  // Sanitized and only in development
+    params: env.NODE_ENV === 'development' ? req.params : undefined,  // Only in development
     ip: req.ip,
     userAgent: req.get('user-agent'),
+    timestamp: new Date().toISOString(),
   });
 
   // Determine if this is a webhook request (should respond with TwiML)

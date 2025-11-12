@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { healthController } from '../controllers/health.controller.js';
 import { webhookController } from '../controllers/webhook.controller.js';
 import {
+  validateWebhookContentType,
   twilioSignatureMiddleware,
   rateLimitMiddleware,
   validationMiddleware,
@@ -34,10 +35,11 @@ router.get('/health', (req, res) => healthController.check(req, res));
  * Receives incoming messages from Twilio WhatsApp API
  *
  * Middleware Pipeline:
- * 1. twilioSignatureMiddleware - Validates Twilio webhook signature (security)
- * 2. rateLimitMiddleware - Limits requests to 10/min per phone number
- * 3. validationMiddleware - Validates Twilio webhook payload with Zod
- * 4. webhookController.handleIncoming - Processes message and responds with TwiML
+ * 1. validateWebhookContentType - Validates Content-Type header (blocks JSON injection)
+ * 2. twilioSignatureMiddleware - Validates Twilio webhook signature (security)
+ * 3. rateLimitMiddleware - Limits requests to 10/min per phone + 30/min per IP
+ * 4. validationMiddleware - Validates Twilio webhook payload with Zod
+ * 5. webhookController.handleIncoming - Processes message and responds with TwiML
  *
  * Request Body (from Twilio):
  * - From: Phone number with "whatsapp:" prefix
@@ -48,13 +50,17 @@ router.get('/health', (req, res) => healthController.check(req, res));
  *
  * Response: TwiML XML with assistant's response
  *
- * Security: Twilio signature validation prevents webhook spoofing attacks
+ * Security:
+ * - Content-Type validation prevents malformed requests
+ * - Twilio signature validation prevents webhook spoofing attacks
+ * - Dual rate limiting (phone + IP) prevents abuse and DDoS
  */
 router.post(
   '/webhook/whatsapp',
-  twilioSignatureMiddleware,  // FIRST: Validate signature
-  rateLimitMiddleware,
-  validationMiddleware,
+  validateWebhookContentType,  // FIRST: Validate Content-Type
+  twilioSignatureMiddleware,    // SECOND: Validate signature
+  rateLimitMiddleware,           // THIRD: Check rate limits
+  validationMiddleware,          // FOURTH: Validate payload
   (req, res) => webhookController.handleIncoming(req, res)
 );
 

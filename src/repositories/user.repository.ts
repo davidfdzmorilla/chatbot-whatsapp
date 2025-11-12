@@ -1,6 +1,7 @@
 import { User } from '@prisma/client';
 import { prisma } from '../config/database.js';
 import { logger } from '../utils/logger.js';
+import { hashPhoneNumber } from '../utils/privacy.js';
 
 /**
  * User Repository
@@ -12,7 +13,9 @@ export class UserRepository {
    */
   async findByPhoneNumber(phoneNumber: string): Promise<User | null> {
     try {
-      logger.debug('Finding user by phone number', { phoneNumber });
+      logger.debug('Finding user by phone number', {
+        phoneNumberHash: hashPhoneNumber(phoneNumber)
+      });
 
       const user = await prisma.user.findUnique({
         where: { phoneNumber },
@@ -21,13 +24,15 @@ export class UserRepository {
       if (user) {
         logger.debug('User found', { userId: user.id, phoneNumber });
       } else {
-        logger.debug('User not found', { phoneNumber });
+        logger.debug('User not found', {
+          phoneNumberHash: hashPhoneNumber(phoneNumber)
+        });
       }
 
       return user;
     } catch (error) {
       logger.error('Error finding user by phone number', {
-        phoneNumber,
+        phoneNumberHash: hashPhoneNumber(phoneNumber),
         error: error instanceof Error ? error.message : error,
       });
       throw error;
@@ -71,7 +76,7 @@ export class UserRepository {
   }): Promise<User> {
     try {
       logger.info('Creating new user', {
-        phoneNumber: data.phoneNumber,
+        phoneNumberHash: hashPhoneNumber(data.phoneNumber),
         hasName: !!data.name,
       });
 
@@ -91,7 +96,7 @@ export class UserRepository {
       return user;
     } catch (error) {
       logger.error('Error creating user', {
-        phoneNumber: data.phoneNumber,
+        phoneNumberHash: hashPhoneNumber(data.phoneNumber),
         error: error instanceof Error ? error.message : error,
       });
       throw error;
@@ -106,7 +111,9 @@ export class UserRepository {
     data?: Partial<Pick<User, 'name' | 'language'>>
   ): Promise<User> {
     try {
-      logger.debug('Upserting user', { phoneNumber });
+      logger.debug('Upserting user', {
+        phoneNumberHash: hashPhoneNumber(phoneNumber)
+      });
 
       const user = await prisma.user.upsert({
         where: { phoneNumber },
@@ -129,7 +136,7 @@ export class UserRepository {
       return user;
     } catch (error) {
       logger.error('Error upserting user', {
-        phoneNumber,
+        phoneNumberHash: hashPhoneNumber(phoneNumber),
         error: error instanceof Error ? error.message : error,
       });
       throw error;

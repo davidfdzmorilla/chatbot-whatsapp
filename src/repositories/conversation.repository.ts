@@ -59,15 +59,18 @@ export class ConversationRepository {
   /**
    * Find conversation by ID
    * Optionally includes messages
+   * Optionally validates user ownership for access control
    */
   async findById(
     id: string,
-    includeMessages = false
+    includeMessages = false,
+    userId?: string
   ): Promise<Conversation | ConversationWithMessages | null> {
     try {
       logger.debug('Finding conversation by ID', {
         conversationId: id,
         includeMessages,
+        validateOwnership: !!userId,
       });
 
       const conversation = await prisma.conversation.findUnique({
@@ -89,14 +92,25 @@ export class ConversationRepository {
         }),
       });
 
-      if (conversation) {
-        logger.debug('Conversation found', {
-          conversationId: id,
-          messageCount: includeMessages ? (conversation as any).messages?.length : undefined,
-        });
-      } else {
+      if (!conversation) {
         logger.debug('Conversation not found', { conversationId: id });
+        return null;
       }
+
+      // Access control: Validate user ownership if userId provided
+      if (userId && conversation.userId !== userId) {
+        logger.warn('Access denied: User does not own conversation', {
+          conversationId: id,
+          requestedByUserId: userId,
+          conversationUserId: conversation.userId,
+        });
+        return null;
+      }
+
+      logger.debug('Conversation found', {
+        conversationId: id,
+        messageCount: includeMessages ? (conversation as any).messages?.length : undefined,
+      });
 
       return conversation;
     } catch (error) {
@@ -201,10 +215,36 @@ export class ConversationRepository {
   /**
    * Close a conversation
    * Sets status to CLOSED
+   * Validates user ownership for access control
    */
-  async closeConversation(id: string): Promise<Conversation> {
+  async closeConversation(id: string, userId: string): Promise<Conversation> {
     try {
-      logger.info('Closing conversation', { conversationId: id });
+      logger.info('Closing conversation', { conversationId: id, userId });
+
+      // Access control: Verify conversation belongs to user
+      const existing = await prisma.conversation.findUnique({
+        where: { id },
+        select: { userId: true },
+      });
+
+      if (!existing) {
+        const error = new Error(`Conversation not found: ${id}`);
+        logger.error('Cannot close non-existent conversation', {
+          conversationId: id,
+          userId,
+        });
+        throw error;
+      }
+
+      if (existing.userId !== userId) {
+        const error = new Error('Access denied: User does not own conversation');
+        logger.warn('Access denied: Attempted to close conversation owned by another user', {
+          conversationId: id,
+          requestedByUserId: userId,
+          conversationUserId: existing.userId,
+        });
+        throw error;
+      }
 
       const conversation = await prisma.conversation.update({
         where: { id },
@@ -230,10 +270,36 @@ export class ConversationRepository {
   /**
    * Archive a conversation
    * Sets status to ARCHIVED
+   * Validates user ownership for access control
    */
-  async archiveConversation(id: string): Promise<Conversation> {
+  async archiveConversation(id: string, userId: string): Promise<Conversation> {
     try {
-      logger.info('Archiving conversation', { conversationId: id });
+      logger.info('Archiving conversation', { conversationId: id, userId });
+
+      // Access control: Verify conversation belongs to user
+      const existing = await prisma.conversation.findUnique({
+        where: { id },
+        select: { userId: true },
+      });
+
+      if (!existing) {
+        const error = new Error(`Conversation not found: ${id}`);
+        logger.error('Cannot archive non-existent conversation', {
+          conversationId: id,
+          userId,
+        });
+        throw error;
+      }
+
+      if (existing.userId !== userId) {
+        const error = new Error('Access denied: User does not own conversation');
+        logger.warn('Access denied: Attempted to archive conversation owned by another user', {
+          conversationId: id,
+          requestedByUserId: userId,
+          conversationUserId: existing.userId,
+        });
+        throw error;
+      }
 
       const conversation = await prisma.conversation.update({
         where: { id },

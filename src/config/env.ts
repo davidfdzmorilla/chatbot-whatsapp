@@ -37,6 +37,12 @@ const envSchema = z.object({
 
   // Optional
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
+
+  // Privacy & Security
+  PRIVACY_HASH_SALT: z
+    .string()
+    .min(32, 'PRIVACY_HASH_SALT must be at least 32 characters')
+    .default('default-salt-CHANGE-IN-PRODUCTION'),
 });
 
 /**

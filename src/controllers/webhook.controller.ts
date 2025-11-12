@@ -6,6 +6,7 @@ import {
   aiService,
 } from '../services/index.js';
 import { logger } from '../utils/logger.js';
+import { hashPhoneNumber, hashPII } from '../utils/privacy.js';
 
 /**
  * Webhook Controller
@@ -38,11 +39,11 @@ export class WebhookController {
       } = req.body;
 
       logger.info('📱 Incoming WhatsApp message', {
-        from: From,
+        fromHash: hashPhoneNumber(From),
         messageSid: MessageSid,
         bodyLength: Body?.length || 0,
         numMedia: NumMedia || '0',
-        profileName: ProfileName,
+        profileNameHash: ProfileName ? hashPII(ProfileName) : undefined,
       });
 
       // Step 2: Validate required fields

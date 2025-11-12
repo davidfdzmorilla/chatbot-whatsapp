@@ -7,6 +7,9 @@
  * validation, and authentication.
  */
 
+// Export Content-Type validation middleware
+export { validateWebhookContentType } from './contentType.middleware.js';
+
 // Export rate limiting middleware
 export {
   rateLimitMiddleware,

@@ -7,6 +7,8 @@ import {
 } from '../repositories/conversation.repository.js';
 import { messageRepository } from '../repositories/message.repository.js';
 import { logger } from '../utils/logger.js';
+import { hashPhoneNumber } from '../utils/privacy.js';
+import { CachedConversationSchema } from '../types/cache.js';
 
 /**
  * Configuration constants for conversation management
@@ -33,7 +35,9 @@ export class ConversationService {
    */
   async getOrCreateConversation(phoneNumber: string): Promise<ConversationData> {
     try {
-      logger.info('Getting or creating conversation', { phoneNumber });
+      logger.info('Getting or creating conversation', {
+        phoneNumberHash: hashPhoneNumber(phoneNumber)
+      });
 
       // 1. Upsert user (create if doesn't exist, return if exists)
       const user = await userRepository.upsert(phoneNumber);
@@ -50,7 +54,7 @@ export class ConversationService {
       if (!conversation) {
         logger.info('Creating new conversation for user', {
           userId: user.id,
-          phoneNumber,
+          phoneNumberHash: hashPhoneNumber(phoneNumber),
         });
 
         conversation = await conversationRepository.create(user.id);
@@ -67,7 +71,7 @@ export class ConversationService {
       };
     } catch (error) {
       logger.error('Error getting or creating conversation', {
-        phoneNumber,
+        phoneNumberHash: hashPhoneNumber(phoneNumber),
         error: error instanceof Error ? error.message : error,
       });
       throw error;
@@ -76,7 +80,7 @@ export class ConversationService {
 
   /**
    * Get conversation with cached context messages
-   * Implements cache-first strategy for performance
+   * Implements cache-first strategy with Zod validation for cache integrity
    */
   async getConversationWithContext(
     conversationId: string
@@ -89,11 +93,25 @@ export class ConversationService {
       const cached = await redis.get(cacheKey);
 
       if (cached) {
-        logger.debug('Conversation context cache hit', { conversationId });
-        return JSON.parse(cached);
+        try {
+          // Validate cached data with Zod schema to prevent cache poisoning
+          const parsed = JSON.parse(cached);
+          const validated = CachedConversationSchema.parse(parsed);
+
+          logger.debug('Conversation context cache hit (validated)', { conversationId });
+          return validated as ConversationWithMessages;
+        } catch (validationError) {
+          // Cache data is corrupted or doesn't match schema - invalidate and refetch
+          logger.warn('Cache validation failed, invalidating corrupted cache', {
+            conversationId,
+            error: validationError instanceof Error ? validationError.message : validationError,
+          });
+          await redis.del(cacheKey);
+          // Continue to fetch from database
+        }
       }
 
-      // 2. Cache miss - fetch from database
+      // 2. Cache miss or validation failed - fetch from database
       logger.debug('Conversation context cache miss, fetching from DB', {
         conversationId,
       });
@@ -163,12 +181,12 @@ export class ConversationService {
   /**
    * Close a conversation
    */
-  async closeConversation(conversationId: string): Promise<Conversation> {
+  async closeConversation(conversationId: string, userId: string): Promise<Conversation> {
     try {
-      logger.info('Closing conversation', { conversationId });
+      logger.info('Closing conversation', { conversationId, userId });
 
-      // 1. Close conversation in database
-      const conversation = await conversationRepository.closeConversation(conversationId);
+      // 1. Close conversation in database (with access control)
+      const conversation = await conversationRepository.closeConversation(conversationId, userId);
 
       // 2. Invalidate cache
       const cacheKey = CacheKeys.conversationContext(conversationId);
@@ -191,12 +209,12 @@ export class ConversationService {
   /**
    * Archive a conversation
    */
-  async archiveConversation(conversationId: string): Promise<Conversation> {
+  async archiveConversation(conversationId: string, userId: string): Promise<Conversation> {
     try {
-      logger.info('Archiving conversation', { conversationId });
+      logger.info('Archiving conversation', { conversationId, userId });
 
-      // 1. Archive conversation in database
-      const conversation = await conversationRepository.archiveConversation(conversationId);
+      // 1. Archive conversation in database (with access control)
+      const conversation = await conversationRepository.archiveConversation(conversationId, userId);
 
       // 2. Invalidate cache
       const cacheKey = CacheKeys.conversationContext(conversationId);
