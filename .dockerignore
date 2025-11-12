@@ -63,5 +63,5 @@ docker-compose*.yml
 .prettierignore
 .eslintrc*
 .eslintignore
-tsconfig.json
 jest.config.*
+# NOTE: tsconfig.json is NEEDED for Docker build, do NOT exclude it

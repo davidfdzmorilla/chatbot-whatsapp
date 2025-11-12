@@ -195,12 +195,15 @@ export class AIService {
 
   /**
    * Convert message context to Anthropic MessageParam format
+   * Filters out SYSTEM messages and converts roles to lowercase
    */
   private convertToAnthropicMessages(messages: MessageContext[]): MessageParam[] {
-    return messages.map((msg) => ({
-      role: msg.role as 'user' | 'assistant',
-      content: msg.content,
-    }));
+    return messages
+      .filter((msg) => msg.role !== 'SYSTEM') // Claude API doesn't accept system role in messages
+      .map((msg) => ({
+        role: msg.role.toLowerCase() as 'user' | 'assistant',
+        content: msg.content,
+      }));
   }
 
   /**

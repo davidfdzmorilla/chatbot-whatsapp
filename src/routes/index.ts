@@ -4,9 +4,11 @@ import { webhookController } from '../controllers/webhook.controller.js';
 import {
   validateWebhookContentType,
   twilioSignatureMiddleware,
+  optionalTwilioSignatureMiddleware,
   rateLimitMiddleware,
   validationMiddleware,
 } from '../middleware/index.js';
+import { env } from '../config/env.js';
 
 /**
  * Main router configuration
@@ -55,10 +57,17 @@ router.get('/health', (req, res) => healthController.check(req, res));
  * - Twilio signature validation prevents webhook spoofing attacks
  * - Dual rate limiting (phone + IP) prevents abuse and DDoS
  */
+// Select signature middleware based on environment
+// Development: Optional validation (allows ngrok testing)
+// Production: Strict validation (security required)
+const signatureMiddleware = env.NODE_ENV === 'development'
+  ? optionalTwilioSignatureMiddleware
+  : twilioSignatureMiddleware;
+
 router.post(
   '/webhook/whatsapp',
   validateWebhookContentType,  // FIRST: Validate Content-Type
-  twilioSignatureMiddleware,    // SECOND: Validate signature
+  signatureMiddleware,          // SECOND: Validate signature (optional in dev)
   rateLimitMiddleware,           // THIRD: Check rate limits
   validationMiddleware,          // FOURTH: Validate payload
   (req, res) => webhookController.handleIncoming(req, res)

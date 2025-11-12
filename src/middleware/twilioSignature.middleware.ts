@@ -1,7 +1,10 @@
 import type { Request, Response, NextFunction } from 'express';
-import { validateRequest } from 'twilio';
+import twilio from 'twilio';
 import { logger } from '../utils/logger.js';
 import { env } from '../config/env.js';
+
+// Extract validateRequest from Twilio
+const { validateRequest } = twilio;
 
 /**
  * Twilio Signature Validation Middleware
